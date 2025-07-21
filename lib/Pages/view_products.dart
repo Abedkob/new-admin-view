@@ -532,13 +532,6 @@ class _ViewProductsState extends State<ViewProducts> with SingleTickerProviderSt
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () {
-            // Navigate to product details
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Viewing details for ${product['name'] ?? 'Unknown Product'}'),
-                backgroundColor: Colors.blue.shade700,
-              ),
-            );
           },
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -606,22 +599,7 @@ class _ViewProductsState extends State<ViewProducts> with SingleTickerProviderSt
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.blue.shade200,
-                                width: 1,
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.arrow_forward_ios,
-                              color: Colors.blue.shade700,
-                              size: 16,
-                            ),
-                          ),
+
                         ],
                       ),
                       const SizedBox(height: 8),
