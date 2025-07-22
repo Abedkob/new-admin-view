@@ -25,17 +25,18 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
+  // Track scanned barcodes to prevent duplicate processing - REMOVED for multiple scans
+  DateTime? lastScanTime;
+  static const Duration scanCooldown = Duration(milliseconds: 800); // Reduced cooldown
+
   @override
   void initState() {
     super.initState();
-    scannerController = MobileScannerController();
-
     // Initialize animation controller
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -43,6 +44,18 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
       parent: _animationController,
       curve: Curves.easeInOut,
     ));
+  }
+
+  void _initializeScanner() {
+    // Dispose existing controller first
+    scannerController?.dispose();
+
+    // Create new controller with proper settings
+    scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal, // Changed from noDuplicates to allow multiple scans
+      facing: CameraFacing.back,
+      torchEnabled: false,
+    );
   }
 
   @override
@@ -53,10 +66,11 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
     super.dispose();
   }
 
-  Future<String?> _getToken() async {
+  Future<int?> _getRandAccess() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('token');
+    return prefs.getInt('rand_access');
   }
+
 
   Future<void> _saveCode(String code) async {
     final prefs = await SharedPreferences.getInstance();
@@ -68,57 +82,127 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
     return prefs.getString('code');
   }
 
-  Future<void> fetchProductByBarcode(String barcode) async {
-    if (barcode.isEmpty) {
+  Future<void> fetchProductByBarcode(String barcode, {bool fromScanner = false}) async {
+    // Ensure barcode is treated as string and trim whitespace
+    final barcodeString = barcode.toString().trim();
+
+    if (barcodeString.isEmpty) {
       setState(() => errorMessage = 'Please enter or scan a barcode');
       return;
     }
 
+    // Simple cooldown to prevent rapid duplicate scans
+    final now = DateTime.now();
+    if (lastScanTime != null && now.difference(lastScanTime!) < scanCooldown) {
+      return;
+    }
+    lastScanTime = now;
+
     setState(() {
       isLoading = true;
       errorMessage = '';
+      productName = null;
+      productPrice = null;
+      productQuantity = null;
     });
 
-    await _saveCode(barcode);
-    final token = await _getToken();
+    await _saveCode(barcodeString);
+    final randAccess = await _getRandAccess();
+    print('rand_access value: $randAccess');
 
     try {
+      final encodedBarcode = Uri.encodeComponent(barcodeString);
+      final url = 'http://192.168.103.57/api_auth/products/by-barcode-with-quantity?barcode=$encodedBarcode&rand_access=$randAccess';
+
+      print('Requesting URL: $url');
+      print('Barcode: $barcodeString');
+      print('Encoded Barcode: $encodedBarcode');
+      print('rand_access: ${randAccess != null ? 'Present' : 'Missing'}');
+
       final response = await http.get(
-        Uri.parse('http://127.0.0.1/api_auth/products/by-barcode-with-quantity?barcode=$barcode'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token'
-        },
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
       );
+
+      print('Response Status: ${response.statusCode}');
+      print('Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('Parsed Data: $data');
         setState(() {
-          productName = data['name'];
+          productName = data['name']?.toString() ?? 'Unknown Product';
           productPrice = data['price']?.toString() ?? 'N/A';
           productQuantity = data['quantity']?.toString() ?? '0';
+          if (fromScanner) {
+            isScanning = false;
+            _stopScanning();
+          }
         });
         _animationController.reset();
         _animationController.forward();
+
+        if (fromScanner) {
+          _showScanFeedback(true, 'Product found!');
+        }
       } else {
+        print('Error Response: ${response.statusCode} - ${response.body}');
         setState(() => errorMessage = 'Product not found (${response.statusCode})');
+        if (fromScanner) {
+          _showScanFeedback(false, 'Product not found');
+        }
       }
     } catch (e) {
       setState(() => errorMessage = 'Connection error: ${e.toString()}');
+      if (fromScanner) {
+        _showScanFeedback(false, 'Network error');
+      }
     } finally {
-      setState(() {
-        isLoading = false;
-        isScanning = false;
-      });
+      setState(() => isLoading = false);
+    }
+  }
+
+  void _showScanFeedback(bool success, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Text(message),
+          ],
+        ),
+        backgroundColor: success ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _onBarcodeDetected(BarcodeCapture capture) {
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty || !isScanning) return;
+
+    for (final barcode in barcodes) {
+      // Ensure barcode value is properly converted to string
+      final code = barcode.rawValue?.toString() ?? '';
+      if (code.isNotEmpty) {
+        // Process the first valid barcode found
+        fetchProductByBarcode(code, fromScanner: true);
+        break;
+      }
     }
   }
 
   Future<void> _showQuantityDialog() async {
     final controller = TextEditingController(text: productQuantity ?? '0');
-    final token = await _getToken();
+    final randAccess = await _getRandAccess();
+    print('rand_access value: $randAccess');
     final code = await _getCode();
 
-    if (token == null || code == null) {
+    if (randAccess == null || code == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Authentication required')),
       );
@@ -168,18 +252,19 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                 );
                 return;
               }
-
               Navigator.pop(context);
               setState(() => isLoading = true);
-
               try {
                 final response = await http.post(
-                  Uri.parse('http://127.0.0.1/api_auth/inventory/update'),
+                  Uri.parse('http://192.168.103.57/api_auth/inventory/update'),
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer $token'
                   },
-                  body: jsonEncode({'code': code, 'quantity': quantity}),
+                  body: jsonEncode({
+                    'code': code,
+                    'quantity': quantity,
+                    'rand_access': randAccess,
+                  }),
                 );
 
                 if (response.statusCode == 200) {
@@ -193,7 +278,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Update failed: ${response.body}'),
+                      content: Text('Update failed: ${response.statusCode} - ${response.body}'),
                       backgroundColor: Colors.red.shade600,
                     ),
                   );
@@ -215,7 +300,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('Update',style: TextStyle(color: Colors.white),),
+            child: const Text('Update', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -225,9 +310,63 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
   void _toggleScanning() {
     setState(() {
       isScanning = !isScanning;
-      if (!isScanning) {
-        scannerController?.stop();
+      if (isScanning) {
+        _startScanning();
+      } else {
+        _stopScanning();
       }
+    });
+  }
+
+  void _startScanning() {
+    _clearAndReset();
+    _initializeScanner(); // Reinitialize scanner
+    // Small delay to ensure controller is ready
+    Future.delayed(const Duration(milliseconds: 100), () {
+      scannerController?.start();
+    });
+  }
+
+  void _stopScanning() {
+    scannerController?.stop();
+  }
+
+  void _clearAndReset() {
+    setState(() {
+      productName = null;
+      productPrice = null;
+      productQuantity = null;
+      errorMessage = '';
+      _barcodeController.clear();
+      _animationController.reset();
+    });
+    // Reset scan timing
+    lastScanTime = null;
+  }
+
+  void _resetForNewScan() {
+    // Clear previous product and reset state
+    setState(() {
+      productName = null;
+      productPrice = null;
+      productQuantity = null;
+      errorMessage = '';
+      isScanning = true; // Automatically start scanning mode
+      _animationController.reset();
+    });
+
+    // Reset scan timing to allow immediate new scan
+    lastScanTime = null;
+    _barcodeController.clear();
+
+    // Reinitialize and start scanner
+    _initializeScanner();
+
+    // Small delay to ensure controller is ready
+    Future.delayed(const Duration(milliseconds: 100), () {
+      scannerController?.start();
+      // Show feedback
+      _showScanFeedback(true, 'Ready to scan new barcode');
     });
   }
 
@@ -247,7 +386,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
         actions: [
           IconButton(
             icon: Icon(
-              isScanning ? Icons.camera_alt : Icons.qr_code_scanner,
+              isScanning ? Icons.keyboard : Icons.qr_code_scanner,
               color: Colors.white,
             ),
             onPressed: _toggleScanning,
@@ -276,10 +415,17 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
         ),
       ),
       floatingActionButton: isScanning
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
         onPressed: _toggleScanning,
         backgroundColor: Colors.red.shade600,
-        child: const Icon(Icons.close, color: Colors.white),
+        icon: const Icon(Icons.close, color: Colors.white),
+        label: const Text(
+          'Stop Scanning',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       )
           : null,
     );
@@ -288,16 +434,43 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
   Widget _buildScannerView() {
     return Stack(
       children: [
-        MobileScanner(
-          controller: scannerController,
-          onDetect: (capture) {
-            final List<Barcode> barcodes = capture.barcodes;
-            if (barcodes.isNotEmpty) {
-              final String barcode = barcodes.first.rawValue ?? '';
-              fetchProductByBarcode(barcode);
-            }
-          },
-        ),
+        // Scanner with proper error handling
+        if (scannerController != null)
+          MobileScanner(
+            controller: scannerController!,
+            onDetect: _onBarcodeDetected,
+            errorBuilder: (context, error, child) {
+              return Container(
+                color: Colors.black,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.error,
+                        color: Colors.red,
+                        size: 64,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Camera Error: ${error.errorCode}',
+                        style: const TextStyle(color: Colors.white),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          _initializeScanner();
+                          setState(() {});
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         // Scanner overlay
         Container(
           decoration: BoxDecoration(
@@ -307,43 +480,62 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
         // Scanner frame
         Center(
           child: Container(
-            width: 250,
-            height: 250,
+            width: 280,
+            height: 280,
             decoration: BoxDecoration(
               border: Border.all(
                 color: Colors.blue.shade400,
-                width: 2,
+                width: 3,
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Stack(
+              children: [
+                // Corner decorations
+                ...List.generate(4, (index) => _buildCornerDecoration(index)),
+              ],
             ),
           ),
         ),
         // Instructions
         Positioned(
-          bottom: 100,
+          bottom: 120,
           left: 0,
           right: 0,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 40),
-            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.8),
-              borderRadius: BorderRadius.circular(12),
+              color: Colors.black.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.blue.shade400.withOpacity(0.3),
+                width: 1,
+              ),
             ),
             child: Column(
               children: [
                 Icon(
-                  Icons.qr_code_scanner,
-                  color: Colors.blue.shade800,
+                  Icons.center_focus_strong,
+                  color: Colors.blue.shade400,
                   size: 32,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Position the barcode within the frame',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Position the barcode within the frame',
+                  'Scanner will automatically exit after successful scan',
                   style: TextStyle(
-                    color: Colors.blue.shade900,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 14,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -352,6 +544,36 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCornerDecoration(int index) {
+    final positions = [
+      {'top': 0.0, 'left': 0.0}, // Top-left
+      {'top': 0.0, 'right': 0.0}, // Top-right
+      {'bottom': 0.0, 'left': 0.0}, // Bottom-left
+      {'bottom': 0.0, 'right': 0.0}, // Bottom-right
+    ];
+
+    final position = positions[index];
+
+    return Positioned(
+      top: position['top'],
+      left: position['left'],
+      right: position['right'],
+      bottom: position['bottom'],
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          border: Border(
+            top: index < 2 ? BorderSide(color: Colors.blue.shade400, width: 4) : BorderSide.none,
+            bottom: index >= 2 ? BorderSide(color: Colors.blue.shade400, width: 4) : BorderSide.none,
+            left: index % 2 == 0 ? BorderSide(color: Colors.blue.shade400, width: 4) : BorderSide.none,
+            right: index % 2 == 1 ? BorderSide(color: Colors.blue.shade400, width: 4) : BorderSide.none,
+          ),
+        ),
+      ),
     );
   }
 
@@ -387,7 +609,6 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                 ],
               ),
             ),
-
             // Search Card
             Card(
               elevation: 4,
@@ -400,6 +621,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                   children: [
                     TextField(
                       controller: _barcodeController,
+                      keyboardType: TextInputType.text, // Changed to text to ensure string handling
                       decoration: InputDecoration(
                         labelText: 'Enter barcode',
                         labelStyle: TextStyle(color: Colors.blue.shade700),
@@ -429,7 +651,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: () => fetchProductByBarcode(_barcodeController.text),
+                        onPressed: isLoading ? null : () => fetchProductByBarcode(_barcodeController.text),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue.shade700,
                           foregroundColor: Colors.white,
@@ -438,7 +660,9 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                           ),
                           elevation: 2,
                         ),
-                        child: Row(
+                        child: isLoading
+                            ? CircularProgressIndicator(color: Colors.white)
+                            : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Icon(Icons.search),
@@ -467,9 +691,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
-
             // Results Section
             if (isLoading)
               _buildLoadingWidget()
@@ -585,104 +807,179 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+          Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade100,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.check_circle,
-                      color: Colors.blue.shade700,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Product Found',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
+              Icon(
+                Icons.check_circle,
+                color: Colors.blue.shade700,
+                size: 16,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(width: 4),
               Text(
-                productName!,
+                'Product Found',
                 style: TextStyle(
-                  fontSize: 20,
+                  color: Colors.blue.shade700,
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade900,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade100),
-                ),
-                child: Column(
-                  children: [
-                    _buildInfoRow(
-                      icon: Icons.attach_money,
-                      label: 'Price',
-                      value: '\$$productPrice',
-                    ),
-                    const Divider(height: 24),
-                    _buildInfoRow(
-                      icon: Icons.inventory_2,
-                      label: 'In Stock',
-                      value: productQuantity!,
-                      valueColor: int.parse(productQuantity!) > 0
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _showQuantityDialog,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 2,
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.edit),
-                      SizedBox(width: 8),
-                      Text(
-                        'UPDATE INVENTORY',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        Text(
+          productName!,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.blue.shade900,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade100),
+          ),
+          child: Column(
+            children: [
+              _buildInfoRow(
+                icon: Icons.attach_money,
+                label: 'Price',
+                value: '\$$productPrice',
+              ),
+              const Divider(height: 24),
+              _buildInfoRow(
+                icon: Icons.inventory_2,
+                label: 'In Stock',
+                value: productQuantity!,
+                valueColor: int.tryParse(productQuantity!) != null && int.parse(productQuantity!) > 0
+                    ? Colors.green.shade700
+                    : Colors.red.shade700,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+        Expanded(
+        child: Container(
+        height: 56,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade700, Colors.blue.shade600],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.shade700.withOpacity(0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ElevatedButton(
+
+            onPressed: _showQuantityDialog,
+
+            style: ElevatedButton.styleFrom(
+
+              backgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child:FittedBox(
+
+           child:  const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.edit,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'UPDATE QUANTITY',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            ),
+          ),
+        ),
       ),
+      const SizedBox(width: 12),
+      Container(
+        height: 56,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.green.shade600, Colors.green.shade500],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.shade600.withOpacity(0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ElevatedButton(
+          onPressed: _resetForNewScan,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+            Icon(
+            Icons.qr_code_scanner,
+            color: Colors.white,
+            size: 20,
+          ),
+          SizedBox(width: 5),
+          Text(
+            'SCAN AGAIN',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+            ],
+          ),
+        ),
+
+    ),
+    ],
+    ),
+    ],
+    ),
+    ),
+    ),
     );
   }
 
