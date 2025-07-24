@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'product_managment.dart';
 import 'update_quantity.dart';
 import 'view_products.dart';
+import 'update_official_rate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-
+import 'product_add.dart';
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
 
@@ -16,16 +17,15 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -55,6 +55,7 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
   void dispose() {
     _fadeController.dispose();
     _slideController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -65,10 +66,24 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
     );
   }
 
+  void _navigateToProductManagment() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddProductsView()),
+    );
+  }
+
   void _navigateToViewProducts() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ViewProducts()),
+    );
+  }
+
+  void _navigateToUpdateOfficialRate() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const UpdateOfficialRate()),
     );
   }
 
@@ -78,20 +93,59 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.logout,
+                  color: Colors.red.shade600,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Logout',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Are you sure you want to logout from the admin panel?',
+            style: TextStyle(fontSize: 16),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             ElevatedButton(
               onPressed: () => _performLogout(context),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: Colors.red.shade600,
                 foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
-              child: const Text('Logout'),
+              child: const Text(
+                'Logout',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         );
@@ -107,7 +161,34 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
+      builder: (context) => Container(
+        color: Colors.black.withOpacity(0.5),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  color: Colors.blue.shade600,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Logging out...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
 
     try {
@@ -126,14 +207,16 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
         '/login',
             (route) => false,
       );
-
     } catch (e) {
       // Remove loading indicator
       Navigator.pop(context);
 
       // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logout error: ${e.toString()}')),
+        SnackBar(
+          content: Text('Logout error: ${e.toString()}'),
+          backgroundColor: Colors.red.shade600,
+        ),
       );
     }
   }
@@ -158,7 +241,7 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
         child: SafeArea(
           child: Column(
             children: [
-              // Custom App Bar
+              // Custom App Bar - Fixed at top
               Container(
                 padding: const EdgeInsets.all(20),
                 child: Row(
@@ -168,6 +251,10 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 1,
+                        ),
                       ),
                       child: const Icon(
                         Icons.admin_panel_settings,
@@ -203,6 +290,10 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 1,
+                        ),
                       ),
                       child: IconButton(
                         icon: const Icon(Icons.logout, color: Colors.white),
@@ -213,49 +304,60 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Main Content
+              // Scrollable Content
               Expanded(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
                   child: SlideTransition(
                     position: _slideAnimation,
-                    child: Container(
-                      margin: const EdgeInsets.all(20),
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Column(
                         children: [
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 20),
 
-                          // Two main navigation cards: View Products & Add Products
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: _buildNavigationCard(
-                                    icon: Icons.edit,
-                                    title: 'Update Quantity',
-                                    subtitle: 'Browse and manage existing products',
-                                    color: Colors.green.shade600,
-                                    onTap: _navigateToUpdateQuantity,
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-                                Expanded(
-                                  child: _buildNavigationCard(
-                                    icon: Icons.view_list,
-                                    title: 'View Products',
-                                    subtitle: 'View all the products in your inventory',
-                                    color: Colors.blue.shade600,
-                                    onTap: _navigateToViewProducts,
-                                  ),
-                                ),
-                              ],
-                            ),
+
+
+                          // Navigation Cards
+                          _buildNavigationCard(
+                            icon: Icons.qr_code_scanner,
+                            title: 'Update Quantity',
+                            subtitle: 'Scan products and update inventory quantities',
+                            color: Colors.green.shade600,
+                            onTap: _navigateToUpdateQuantity,
+                          ),
+                          const SizedBox(height: 20),
+
+                          _buildNavigationCard(
+                            icon: Icons.view_list_rounded,
+                            title: 'View Products',
+                            subtitle: 'Browse and search through your product catalog',
+                            color: Colors.blue.shade600,
+                            onTap: _navigateToViewProducts,
+                          ),
+                          const SizedBox(height: 20),
+
+                          _buildNavigationCard(
+                            icon: Icons.currency_exchange,
+                            title: 'Update Official Rate',
+                            subtitle: 'Manage currency exchange rates for pricing',
+                            color: Colors.orange.shade600,
+                            onTap: _navigateToUpdateOfficialRate,
+                          ),
+                          const SizedBox(height: 20),
+
+                          _buildNavigationCard(
+                            icon: Icons.add,
+                            title: 'Add Products',
+                            subtitle: 'Quickly add products to your store',
+                            color: Colors.purple.shade600,
+                            onTap: _navigateToProductManagment,
                           ),
 
+                          // Bottom spacing
                           const SizedBox(height: 40),
-
-
-
                         ],
                       ),
                     ),
@@ -269,6 +371,46 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: 32,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNavigationCard({
     required IconData icon,
     required String title,
@@ -276,109 +418,91 @@ class _AdminHomeState extends State<AdminHome> with TickerProviderStateMixin {
     required Color color,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 32,
-              ),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E3A8A),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-
-              ),
-              child: Icon(
-                Icons.arrow_forward_ios,
-                color: color,
-                size: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickAction(IconData icon, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: Colors.white,
-              size: 24,
+            ],
+            border: Border.all(
+              color: Colors.white.withOpacity(0.5),
+              width: 1,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: color.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A8A),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        height: 1.3,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios,
+                  color: color,
+                  size: 16,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

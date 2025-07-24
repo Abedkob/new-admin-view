@@ -112,7 +112,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
 
     try {
       final encodedBarcode = Uri.encodeComponent(barcodeString);
-      final url = 'http://192.168.103.57/api_auth/products/by-barcode-with-quantity?barcode=$encodedBarcode&rand_access=$randAccess';
+      final url = 'http://192.168.81.57/api_auth/products/by-barcode-with-quantity?barcode=$encodedBarcode&rand_access=$randAccess';
 
       print('Requesting URL: $url');
       print('Barcode: $barcodeString');
@@ -256,7 +256,7 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
               setState(() => isLoading = true);
               try {
                 final response = await http.post(
-                  Uri.parse('http://192.168.103.57/api_auth/inventory/update'),
+                  Uri.parse('http://192.168.81.57/api_auth/inventory/update'),
                   headers: {
                     'Content-Type': 'application/json',
                   },
@@ -383,14 +383,24 @@ class _ProductTestPageState extends State<ProductTestPage> with SingleTickerProv
         ),
         backgroundColor: Colors.blue.shade800,
         elevation: 0,
+        automaticallyImplyLeading: false, // This prevents the default back button
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () {
+            if (isScanning) {
+              // If scanning is active, stop scanning instead of popping
+              _stopScanning();
+              setState(() {
+                isScanning = false;
+              });
+            } else {
+              // Otherwise, proceed with normal back navigation
+              Navigator.pop(context);
+            }
+          },
+        ),
         actions: [
-          IconButton(
-            icon: Icon(
-              isScanning ? Icons.keyboard : Icons.qr_code_scanner,
-              color: Colors.white,
-            ),
-            onPressed: _toggleScanning,
-          ),
+          // Your existing actions if any
         ],
       ),
       body: Container(

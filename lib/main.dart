@@ -45,10 +45,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   Future<void> _checkAuthStatus() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = prefs.getInt('rand_access');
 
     setState(() {
-      _isAuthenticated = token != null && token.isNotEmpty;
+      _isAuthenticated = token != null;
       _isLoading = false;
     });
   }

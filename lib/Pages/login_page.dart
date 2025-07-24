@@ -54,7 +54,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     final String username = _usernameController.text.trim();
     final String password = _passwordController.text.trim();
 
-    final loginUrl = Uri.parse('http://192.168.103.57/api_auth/login');
+    final loginUrl = Uri.parse('http://192.168.81.57/api_auth/login');
     final headers = {"Content-Type": "application/json"};
     final loginBody = jsonEncode({"username": username, "password": password});
 
